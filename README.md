@@ -152,6 +152,42 @@ Success block: ...
 
 ## GPU (opsional, advanced)
 
+### Deteksi GPU (Rust)
+
+Direktori `gpu-probe/` berisi utility Rust kecil yang pakai `wgpu` untuk enumerate
+GPU adapter di mesin kamu (Vulkan/DX12/Metal/GL — jadi NVIDIA, AMD, Intel,
+Apple semua kelihatan). Tidak melakukan hashing, cuma deteksi.
+
+Build sekali:
+
+```bash
+cd gpu-probe
+cargo build --release
+cd ..
+```
+
+Setelah itu `npm start` akan otomatis memanggil probe-nya dan menampilkan daftar
+GPU di header. Bisa juga dijalankan manual:
+
+```bash
+./gpu-probe/target/release/gpu-probe                 # text
+./gpu-probe/target/release/gpu-probe --format json   # json
+```
+
+Contoh output di mesin dengan GPU:
+
+```
+Detected 1 adapter(s):
+  [0] NVIDIA GeForce RTX 3070 (NVIDIA) via vulkan  type=discrete  vendor=0x10DE  device=0x2484
+       driver: NVIDIA 550.120
+
+hardware GPU available: yes
+```
+
+Override path binary lewat env var kalau perlu: `GPU_PROBE=/usr/local/bin/gpu-probe npm start`.
+
+### GPU mining (opsional, belum diimplementasi)
+
 `USE_GPU=1` hanya aktif kalau kamu menyediakan `./gpu-backend.js` sendiri yang meng-export:
 
 ```js

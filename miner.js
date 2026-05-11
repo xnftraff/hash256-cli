@@ -3,7 +3,9 @@
 require("dotenv").config();
 
 const os = require("os");
+const fs = require("fs");
 const path = require("path");
+const { spawnSync } = require("child_process");
 const { Worker } = require("worker_threads");
 const { ethers } = require("ethers");
 
@@ -152,6 +154,45 @@ function mineWithWorkers({ challengeHex, difficultyHex, threads }) {
   });
 }
 
+// Try to detect GPUs on this machine via the Rust `gpu-probe` binary.
+// Returns { adapters: [...], hasHardwareGpu: bool } or null if probe is not
+// available / fails. Non-fatal: mining continues on CPU regardless.
+function detectGpus() {
+  const candidates = [
+    process.env.GPU_PROBE,
+    path.join(__dirname, "gpu-probe", "target", "release", "gpu-probe"),
+    path.join(__dirname, "gpu-probe", "target", "release", "gpu-probe.exe"),
+    path.join(__dirname, "bin", "gpu-probe"),
+    "gpu-probe"
+  ].filter(Boolean);
+
+  for (const bin of candidates) {
+    try {
+      // For absolute paths we can skip missing files quickly.
+      if (path.isAbsolute(bin) && !fs.existsSync(bin)) continue;
+
+      const res = spawnSync(bin, ["--format", "json"], {
+        encoding: "utf8",
+        timeout: 10000
+      });
+      if (res.error) continue;
+      // exit code 0/1/2 are all valid report outputs from gpu-probe; only
+      // missing binary / crash is treated as "probe unavailable".
+      if (typeof res.stdout !== "string" || res.stdout.trim() === "") continue;
+
+      const parsed = JSON.parse(res.stdout);
+      return {
+        binary: bin,
+        adapters: parsed.adapters || [],
+        hasHardwareGpu: !!parsed.has_hardware_gpu
+      };
+    } catch (_) {
+      // try next candidate
+    }
+  }
+  return null;
+}
+
 // Optional GPU backend shim. If present, it must export:
 //   async function mineGpu({ challengeHex, difficultyHex }) -> { nonce, hash }
 function tryLoadGpuBackend() {
@@ -184,12 +225,35 @@ async function main() {
   const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, wallet);
 
   const gpu = tryLoadGpuBackend();
+  const gpuInfo = detectGpus();
 
   console.log("Wallet:    ", wallet.address);
   console.log("Contract:  ", CONTRACT_ADDRESS);
   console.log("Threads:   ", THREADS, "(logical cores:", os.cpus().length + ")");
   console.log("Total RAM: ", (os.totalmem() / 1024 / 1024 / 1024).toFixed(1) + " GB");
-  console.log("Backend:   ", gpu ? "GPU" : "CPU (worker_threads + native keccak)");
+  console.log("Backend:   ", gpu ? "GPU" : "CPU (worker_threads + js-sha3)");
+
+  if (gpuInfo) {
+    if (gpuInfo.adapters.length === 0) {
+      console.log("GPU probe:  no adapters detected (", gpuInfo.binary + ")");
+    } else {
+      console.log(
+        "GPU probe:  " + gpuInfo.adapters.length + " adapter(s)" +
+          (gpuInfo.hasHardwareGpu ? " (hardware available)" : " (software only)")
+      );
+      for (const a of gpuInfo.adapters) {
+        console.log(
+          "            - " + a.name + " [" + a.vendor_name + "] via " +
+            a.backend + " (" + a.device_type + ")"
+        );
+      }
+    }
+  } else {
+    console.log(
+      "GPU probe:  not built. Run `cargo build --release` di ./gpu-probe, " +
+        "atau set GPU_PROBE=/path/to/gpu-probe."
+    );
+  }
 
   while (true) {
     const state = await contract.miningState();

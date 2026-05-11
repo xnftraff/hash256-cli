@@ -1,0 +1,23 @@
+[package]
+name = "gpu-probe"
+version = "0.1.0"
+edition = "2021"
+description = "Detect GPU adapters (NVIDIA/AMD/Intel/Apple) via wgpu and report as JSON or text"
+license = "MIT"
+
+[[bin]]
+name = "gpu-probe"
+path = "src/main.rs"
+
+[dependencies]
+# wgpu 22 is the last widely-available stable line with a simple Instance::enumerate_adapters API.
+wgpu = "22"
+pollster = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
